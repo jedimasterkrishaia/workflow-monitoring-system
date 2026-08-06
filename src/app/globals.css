@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+/*
+ * Flat light ops theme. Light is the default; the dark variant only kicks in
+ * when the OS asks for it. Every colour is a CSS variable so both schemes share
+ * one set of Tailwind tokens (declared with `@theme inline` below).
+ */
+:root {
+  color-scheme: light;
+
+  --c-bg: #ffffff;
+  --c-surface: #f7f6f3;
+  --c-surface-2: #fbfaf8;
+  --c-line: #e5e3dc;
+  --c-line-strong: #d6d3c9;
+
+  --c-ink: #1a1a19;
+  --c-ink-2: #6b6a65;
+  --c-ink-3: #999999;
+
+  --c-ok: #1d9e75;
+  --c-ok-soft: #e9f4ef;
+  --c-bad: #e24b4a;
+  --c-bad-soft: #fcebeb;
+  --c-warn: #ba7517;
+  --c-warn-soft: #faeeda;
+
+  /*
+   * The `minor` tier: still green, visibly lighter than ok. The accent is the
+   * pale edge; the ink is a darker, desaturated green, because #7bc49a on a
+   * near-white surface is unreadable at 11px.
+   */
+  --c-minor: #7bc49a;
+  --c-minor-ink: #5f9c81;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --c-bg: #101010;
+    --c-surface: #191918;
+    --c-surface-2: #141413;
+    --c-line: #2b2b28;
+    --c-line-strong: #3a3a36;
+
+    --c-ink: #f2f1ee;
+    --c-ink-2: #a3a199;
+    --c-ink-3: #75736d;
+
+    --c-ok: #35b78d;
+    --c-ok-soft: #12241d;
+    --c-bad: #ec6867;
+    --c-bad-soft: #2a1615;
+    --c-warn: #d69434;
+    --c-warn-soft: #291f11;
+
+    /* The pale accent already reads as light against the dark surface; only the
+     * ink needs lifting to stay legible. */
+    --c-minor: #7bc49a;
+    --c-minor-ink: #8ab9a1;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+
+  --color-ink: var(--c-ink);
+  --color-ink-2: var(--c-ink-2);
+  --color-ink-3: var(--c-ink-3);
+
+  --color-ok: var(--c-ok);
+  --color-ok-soft: var(--c-ok-soft);
+  --color-bad: var(--c-bad);
+  --color-bad-soft: var(--c-bad-soft);
+  --color-warn: var(--c-warn);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-minor: var(--c-minor);
+  --color-minor-ink: var(--c-minor-ink);
+
+  --radius-chip: 8px;
+  --radius-card: 12px;
+
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@layer base {
+  body {
+    background: var(--c-bg);
+    color: var(--c-ink);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "tnum" 1;
+  }
+
+  ::selection {
+    background: var(--c-ink);
+    color: var(--c-bg);
+  }
+}
+
+@layer utilities {
+  /* 0.5px hairlines — the only borders in the design. No shadows, no gradients. */
+  .hairline {
+    border: 0.5px solid var(--c-line);
+  }
+  .hairline-t {
+    border-top: 0.5px solid var(--c-line);
+  }
+  .hairline-b {
+    border-bottom: 0.5px solid var(--c-line);
+  }
+  .hairline-l {
+    border-left: 0.5px solid var(--c-line);
+  }
+  .hairline-dashed {
+    border: 0.5px dashed var(--c-line-strong);
+  }
+
+  /*
+   * Severity accent: a 3px leading edge, never a fill. Declared after the
+   * hairline utilities so the wider left border wins over the 0.5px shorthand
+   * regardless of class order in the markup.
+   */
+  .accent {
+    border-left-width: 3px;
+    border-left-style: solid;
+    border-left-color: var(--c-line-strong);
+  }
+  .accent-ok {
+    border-left-color: var(--c-ok);
+  }
+  .accent-minor {
+    border-left-color: var(--c-minor);
+  }
+  .accent-warn {
+    border-left-color: var(--c-warn);
+  }
+  .accent-bad {
+    border-left-color: var(--c-bad);
+  }
+}
