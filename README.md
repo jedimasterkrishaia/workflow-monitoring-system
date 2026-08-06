@@ -70,7 +70,6 @@ rows currently displayed.
 
 ```
 src/
-  middleware.ts            # Basic Auth in front of every page and API route
   app/
     api/monitor/route.ts   # single JSON snapshot endpoint, polled every 60s
     page.tsx               # server component: first snapshot, then hands off to the client
@@ -103,21 +102,11 @@ npm run typecheck  # tsc --noEmit
 
 ## Access control
 
-`src/middleware.ts` puts HTTP Basic Auth in front of **every** page and `/api` route (only
-`/_next/static`, `/_next/image`, and `/favicon.ico` are exempt). This is the app's sole
-access control — every
-route reads Supabase with the service_role key, so an unauthenticated request is a full read of
-the monitor views.
-
-Credentials come from `BASIC_AUTH_USER` / `BASIC_AUTH_PASS`:
-
-| `NODE_ENV` | Both set | Either unset |
-| --- | --- | --- |
-| `development` (`npm run dev`) | enforced | **open** — no setup needed locally |
-| `production` (Docker, `npm start`) | enforced | **503 on every request** |
-
-A production deploy that forgets the credentials refuses to serve rather than serving the
-dashboard to the internet. If you get a blank 503 after `docker compose up`, that's this.
+**There is none.** Every page and every `/api` route reads Supabase with the service_role key
+(bypasses RLS), and nothing sits in front of them — anyone with the URL gets a full read of the
+monitor views. This was a deliberate choice for this deployment; there is no Basic Auth, no
+IP allowlist, nothing. Don't link to it from anywhere public, and treat the URL itself as the
+only thing keeping it private.
 
 ## Deploy — VPS + Docker
 
@@ -133,8 +122,8 @@ Let's Encrypt's HTTP-01 challenge validates against it like any other public nam
 real cert, not a self-signed one.
 
 Trade-off: the hostname carries the server's IP, so it changes if the VPS moves, and the name
-isn't yours. Fine for an internal ops dashboard behind Basic Auth; swap `MONITOR_DOMAIN` in
-`.env` for a real domain (A record first) when one is available — nothing else needs to change.
+isn't yours. Swap `MONITOR_DOMAIN` in `.env` for a real domain (A record first) when one is
+available — nothing else needs to change.
 
 ### What's in the image
 
@@ -152,7 +141,7 @@ git clone <repo-url> workflow-monitoring
 cd workflow-monitoring
 
 cp .env.example .env
-nano .env          # SUPABASE_SERVICE_ROLE_KEY + BASIC_AUTH_USER/PASS — all four required
+nano .env          # SUPABASE_SERVICE_ROLE_KEY required
                    # MONITOR_DOMAIN already defaults to this VPS's sslip.io name;
                    # check the three TRAEFIK_* values against the running Traefik
 chmod 600 .env
@@ -160,11 +149,10 @@ chmod 600 .env
 docker compose up -d --build
 docker compose logs -f          # Ctrl-C once you see "Ready in ..."
 
-# 401 = the app is up, Basic Auth is working, and Traefik is routing
+# 200 = the app is up and Traefik is routing (no auth in front of it — see
+# "Access control" above)
 curl -i https://monitor.187.127.173.25.sslip.io/
-# 200 = credentials accepted
-curl -i -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" \
-  https://monitor.187.127.173.25.sslip.io/api/monitor
+curl -i https://monitor.187.127.173.25.sslip.io/api/monitor
 
 # Bypass Traefik to isolate app-vs-proxy problems
 docker compose exec monitor node -e "fetch('http://127.0.0.1:3000/').then(r=>console.log(r.status))"
@@ -178,7 +166,7 @@ docker compose up -d --build
 docker image prune -f
 ```
 
-### Change credentials or the Supabase key
+### Change the Supabase key
 
 ```bash
 nano .env
@@ -237,9 +225,6 @@ serves its default self-signed cert until the next retry.)
 Firewall: only 80/443 need to be open, and only Traefik binds them. This compose file publishes
 no host port at all — adding `"3000:3000"` would expose the app on the public IP *and* bypass
 ufw, since Docker writes its own iptables rules.
-
-> Traefik forwards the `Authorization` header upstream by default, so the app's Basic Auth works
-> through the proxy with no extra config. Don't add a `basicauth` middleware — one prompt is enough.
 
 ## Not built yet (deliberately)
 
