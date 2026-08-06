@@ -154,11 +154,8 @@ cd workflow-monitoring
 cp .env.example .env
 nano .env          # SUPABASE_SERVICE_ROLE_KEY + BASIC_AUTH_USER/PASS — all four required
                    # MONITOR_DOMAIN already defaults to this VPS's sslip.io name;
-                   # check the four TRAEFIK_* values against the running Traefik
+                   # check the three TRAEFIK_* values against the running Traefik
 chmod 600 .env
-
-# Confirm the Traefik network exists and matches TRAEFIK_NETWORK in .env
-docker network ls | grep traefik
 
 docker compose up -d --build
 docker compose logs -f          # Ctrl-C once you see "Ready in ..."
@@ -206,25 +203,31 @@ Traefik side, as long as its Docker provider is watching the daemon (`providers.
 static config). Two routers are declared: `monitor` on the HTTPS entrypoint with a cert
 resolver, and `monitor-http` on the HTTP entrypoint redirecting to it.
 
-The four values that must match your Traefik install, all set in `.env`:
+This VPS's Traefik (`/docker/traefik/docker-compose.yml`) runs with `network_mode: host` and
+the Docker-socket provider (`--providers.docker`, `exposedbydefault=false`) — it binds 80/443
+directly on the host and reaches every container's IP over the Docker bridge network itself.
+That means **no shared docker network between this compose file and Traefik is needed at all**
+— unlike the common pattern of joining an `external: true` network, which this install doesn't
+use. (If the monitor container ever gets attached to a second network, add a
+`traefik.docker.network=<name>` label to disambiguate — see the comment above the labels block
+in `docker-compose.yml`.)
+
+The three values that must match your Traefik install, all set in `.env`:
 
 | Variable | Default | Where to check |
 | --- | --- | --- |
-| `TRAEFIK_NETWORK` | `traefik` | `docker network ls` |
-| `TRAEFIK_HTTP_ENTRYPOINT` | `web` | `entryPoints:` in the static config |
+| `TRAEFIK_HTTP_ENTRYPOINT` | `web` | Traefik's `--entrypoints.*.address` flags / `entryPoints:` in static config |
 | `TRAEFIK_HTTPS_ENTRYPOINT` | `websecure` | same |
-| `TRAEFIK_CERTRESOLVER` | `letsencrypt` | `certificatesResolvers:` in the static config |
+| `TRAEFIK_CERTRESOLVER` | `letsencrypt` | `--certificatesresolvers.*` flags / `certificatesResolvers:` in static config |
 
 Get one wrong and the symptom is a Traefik 404 (or its self-signed default cert) rather than an
 error at `up` time — the labels are just strings to Docker. Check with:
 
 ```bash
-docker inspect korefi-workflow-monitor -f '{{json .NetworkSettings.Networks}}'
-docker compose logs traefik | tail -50     # from the Traefik stack's directory
+docker compose ps                          # confirm the monitor container is actually up
+docker logs traefik-traefik-1 --tail 50    # Traefik's own logs
+curl -sk -D - -o /dev/null https://<MONITOR_DOMAIN>/   # 404 + "TRAEFIK DEFAULT CERT" = no router matched
 ```
-
-The network is `external: true` — it's owned by the Traefik stack, not this compose file. If it
-doesn't exist yet: `docker network create traefik`, then attach Traefik to it too.
 
 With the sslip.io default there is no DNS step — the name already resolves to the VPS, so the
 ACME challenge can succeed on the first `up`. (If you switch `MONITOR_DOMAIN` to a real domain,

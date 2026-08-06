@@ -9,19 +9,16 @@ services:
     # plus the MONITOR_DOMAIN / TRAEFIK_* values used by the labels below.
     # Read at container start — `docker compose up -d` after editing .env.
     env_file: .env
-    # No `ports:` on purpose. Traefik talks to the container over the shared
-    # docker network on port 3000; publishing a host port would put the app on
-    # the VPS's public IP and bypass both Traefik and the firewall, since Docker
-    # writes its own iptables rules.
+    # No `ports:` on purpose. Traefik runs with network_mode: host on this VPS
+    # (see /docker/traefik/docker-compose.yml) and reaches containers straight
+    # over the Docker bridge network via the socket-based provider below — it
+    # does not need to share a user-defined network with them. Publishing a
+    # host port here would additionally expose the app on the VPS's public IP
+    # and bypass the firewall, since Docker writes its own iptables rules.
     expose:
       - "3000"
-    networks:
-      - traefik
     labels:
       - "traefik.enable=true"
-      # Only containers on this network are routable; naming it explicitly avoids
-      # Traefik guessing wrong if the service ever joins a second network.
-      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
 
       # --- HTTPS router ---
       - "traefik.http.routers.monitor.rule=Host(`${MONITOR_DOMAIN}`)"
@@ -60,9 +57,8 @@ services:
         max-size: "10m"
         max-file: "3"
 
-networks:
-  traefik:
-    # Created and owned by the Traefik stack, not by this compose file.
-    #   docker network create traefik   # if it doesn't exist yet
-    external: true
-    name: ${TRAEFIK_NETWORK:-traefik}
+# No top-level `networks:` block on purpose — Traefik's docker provider
+# (network_mode: host + the mounted socket) finds this container on whatever
+# network `docker compose` creates for this project by default. That only
+# works because the container has exactly one network; if it's ever attached
+# to a second one, add a "traefik.docker.network=<name>" label to disambiguate.
