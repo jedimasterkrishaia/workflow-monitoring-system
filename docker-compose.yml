@@ -5,14 +5,44 @@ services:
     image: korefi-workflow-monitor:latest
     container_name: korefi-workflow-monitor
     restart: unless-stopped
-    # SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BASIC_AUTH_USER, BASIC_AUTH_PASS.
+    # SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BASIC_AUTH_USER, BASIC_AUTH_PASS,
+    # plus the MONITOR_DOMAIN / TRAEFIK_* values used by the labels below.
     # Read at container start — `docker compose up -d` after editing .env.
     env_file: .env
-    ports:
-      # Bound to loopback: nginx terminates TLS and proxies to localhost:3000.
-      # Publishing "3000:3000" instead would expose the app on the VPS's public
-      # IP and bypass the firewall, since Docker writes its own iptables rules.
-      - "127.0.0.1:3000:3000"
+    # No `ports:` on purpose. Traefik talks to the container over the shared
+    # docker network on port 3000; publishing a host port would put the app on
+    # the VPS's public IP and bypass both Traefik and the firewall, since Docker
+    # writes its own iptables rules.
+    expose:
+      - "3000"
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      # Only containers on this network are routable; naming it explicitly avoids
+      # Traefik guessing wrong if the service ever joins a second network.
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+
+      # --- HTTPS router ---
+      - "traefik.http.routers.monitor.rule=Host(`${MONITOR_DOMAIN}`)"
+      - "traefik.http.routers.monitor.entrypoints=${TRAEFIK_HTTPS_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.monitor.tls=true"
+      - "traefik.http.routers.monitor.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.routers.monitor.service=monitor"
+
+      # --- HTTP router: redirect to HTTPS ---
+      - "traefik.http.routers.monitor-http.rule=Host(`${MONITOR_DOMAIN}`)"
+      - "traefik.http.routers.monitor-http.entrypoints=${TRAEFIK_HTTP_ENTRYPOINT:-web}"
+      - "traefik.http.routers.monitor-http.middlewares=monitor-redirect"
+      - "traefik.http.middlewares.monitor-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.monitor-redirect.redirectscheme.permanent=true"
+
+      # --- Backend ---
+      # Required whenever the image EXPOSEs more than nothing ambiguous; also the
+      # only way Traefik learns the port when no host port is published.
+      - "traefik.http.services.monitor.loadbalancer.server.port=3000"
+      # Basic Auth is enforced by the app itself (src/middleware.ts), so no
+      # traefik basicauth middleware here — adding one would prompt twice.
     healthcheck:
       # 401 is a healthy answer here — Basic Auth is doing its job.
       test:
@@ -29,3 +59,10 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  traefik:
+    # Created and owned by the Traefik stack, not by this compose file.
+    #   docker network create traefik   # if it doesn't exist yet
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}

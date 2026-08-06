@@ -121,7 +121,20 @@ dashboard to the internet. If you get a blank 503 after `docker compose up`, tha
 
 ## Deploy — VPS + Docker
 
-Serves `monitor.aiaccountant.com` from a container on `127.0.0.1:3000` behind nginx.
+Serves `monitor.187.127.173.25.sslip.io` from a container behind the VPS's existing Traefik.
+The container publishes **no host port** — Traefik reaches it on port 3000 over a shared
+Docker network and terminates TLS.
+
+### Hostname: sslip.io, no DNS setup
+
+`sslip.io` is a public wildcard resolver: `<anything>.<ip>.sslip.io` resolves to `<ip>`. So
+`monitor.187.127.173.25.sslip.io` already points at the VPS with nothing to configure, and
+Let's Encrypt's HTTP-01 challenge validates against it like any other public name — you get a
+real cert, not a self-signed one.
+
+Trade-off: the hostname carries the server's IP, so it changes if the VPS moves, and the name
+isn't yours. Fine for an internal ops dashboard behind Basic Auth; swap `MONITOR_DOMAIN` in
+`.env` for a real domain (A record first) when one is available — nothing else needs to change.
 
 ### What's in the image
 
@@ -140,15 +153,24 @@ cd workflow-monitoring
 
 cp .env.example .env
 nano .env          # SUPABASE_SERVICE_ROLE_KEY + BASIC_AUTH_USER/PASS — all four required
+                   # MONITOR_DOMAIN already defaults to this VPS's sslip.io name;
+                   # check the four TRAEFIK_* values against the running Traefik
 chmod 600 .env
+
+# Confirm the Traefik network exists and matches TRAEFIK_NETWORK in .env
+docker network ls | grep traefik
 
 docker compose up -d --build
 docker compose logs -f          # Ctrl-C once you see "Ready in ..."
 
-# 401 = the app is up and Basic Auth is working
-curl -i http://127.0.0.1:3000/
+# 401 = the app is up, Basic Auth is working, and Traefik is routing
+curl -i https://monitor.187.127.173.25.sslip.io/
 # 200 = credentials accepted
-curl -i -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" http://127.0.0.1:3000/api/monitor
+curl -i -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" \
+  https://monitor.187.127.173.25.sslip.io/api/monitor
+
+# Bypass Traefik to isolate app-vs-proxy problems
+docker compose exec monitor node -e "fetch('http://127.0.0.1:3000/').then(r=>console.log(r.status))"
 ```
 
 ### Redeploy after a code change
@@ -177,54 +199,44 @@ docker compose logs --tail=100
 docker compose down            # stop and remove
 ```
 
-### nginx
+### Traefik
 
-`/etc/nginx/sites-available/monitor.aiaccountant.com`:
+Routing lives entirely in the `labels:` block of `docker-compose.yml` — nothing to add on the
+Traefik side, as long as its Docker provider is watching the daemon (`providers.docker` in the
+static config). Two routers are declared: `monitor` on the HTTPS entrypoint with a cert
+resolver, and `monitor-http` on the HTTP entrypoint redirecting to it.
 
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name monitor.aiaccountant.com;
+The four values that must match your Traefik install, all set in `.env`:
 
-    # Certbot rewrites this block to redirect to 443 and adds the TLS lines below.
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
+| Variable | Default | Where to check |
+| --- | --- | --- |
+| `TRAEFIK_NETWORK` | `traefik` | `docker network ls` |
+| `TRAEFIK_HTTP_ENTRYPOINT` | `web` | `entryPoints:` in the static config |
+| `TRAEFIK_HTTPS_ENTRYPOINT` | `websecure` | same |
+| `TRAEFIK_CERTRESOLVER` | `letsencrypt` | `certificatesResolvers:` in the static config |
 
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # The dashboard polls /api/monitor every 60s; a snapshot can be slow when
-        # Supabase is cold.
-        proxy_read_timeout 75s;
-
-        # Upgrade/Connection are here for Next.js dev HMR; harmless in production.
-        proxy_set_header Upgrade    $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-```
-
-Enable it and add TLS:
+Get one wrong and the symptom is a Traefik 404 (or its self-signed default cert) rather than an
+error at `up` time — the labels are just strings to Docker. Check with:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/monitor.aiaccountant.com /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-
-sudo certbot --nginx -d monitor.aiaccountant.com
+docker inspect korefi-workflow-monitor -f '{{json .NetworkSettings.Networks}}'
+docker compose logs traefik | tail -50     # from the Traefik stack's directory
 ```
 
-Point an A record for `monitor.aiaccountant.com` at the VPS before running certbot.
+The network is `external: true` — it's owned by the Traefik stack, not this compose file. If it
+doesn't exist yet: `docker network create traefik`, then attach Traefik to it too.
 
-Firewall: only 80/443 need to be open. The container publishes to `127.0.0.1:3000`, not
-`0.0.0.0` — publishing `"3000:3000"` instead would expose it on the public IP *and* bypass
+With the sslip.io default there is no DNS step — the name already resolves to the VPS, so the
+ACME challenge can succeed on the first `up`. (If you switch `MONITOR_DOMAIN` to a real domain,
+point its A record at the VPS **before** the first `up`, or the challenge fails and Traefik
+serves its default self-signed cert until the next retry.)
+
+Firewall: only 80/443 need to be open, and only Traefik binds them. This compose file publishes
+no host port at all — adding `"3000:3000"` would expose the app on the public IP *and* bypass
 ufw, since Docker writes its own iptables rules.
 
-> nginx forwards the `Authorization` header upstream by default, so Basic Auth works through
-> the proxy with no extra config. Don't add a second `auth_basic` in nginx — one prompt is enough.
+> Traefik forwards the `Authorization` header upstream by default, so the app's Basic Auth works
+> through the proxy with no extra config. Don't add a `basicauth` middleware — one prompt is enough.
 
 ## Not built yet (deliberately)
 
