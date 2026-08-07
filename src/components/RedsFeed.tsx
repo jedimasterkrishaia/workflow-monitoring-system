@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import MissingAndBroken from '@/components/MissingAndBroken'
 import { humanize } from '@/lib/aggregate'
-import { BASE_PATH } from '@/lib/basePath'
 import { SEVERITY_RANK, type Severity } from '@/lib/severity'
 import { formatIstDateTime, relativeFromTimestamp } from '@/lib/time'
 import type {
@@ -195,7 +194,7 @@ export default function RedsFeed({
     setLoadError(null)
     try {
       const offset = reds.length + extra.length
-      const res = await fetch(`${BASE_PATH}/api/reds?offset=${offset}`, { cache: 'no-store' })
+      const res = await fetch(`/api/reds?offset=${offset}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const page = (await res.json()) as RedsPage
       setExtra((prev) => [...prev, ...(page.reds ?? [])])
