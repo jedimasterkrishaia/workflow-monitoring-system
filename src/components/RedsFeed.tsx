@@ -2,11 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import MissedBatches from '@/components/MissedBatches'
+import MissingAndBroken from '@/components/MissingAndBroken'
 import { humanize } from '@/lib/aggregate'
+import { BASE_PATH } from '@/lib/basePath'
 import { SEVERITY_RANK, type Severity } from '@/lib/severity'
 import { formatIstDateTime, relativeFromTimestamp } from '@/lib/time'
-import type { BatchIntegrityRow, MissedReminderRow, RedRow, RedsPage } from '@/lib/types'
+import type {
+  BatchIntegrityRow,
+  CoachIntegrityRow,
+  MissedReminderRow,
+  MissedTranscriptRow,
+  RedRow,
+  RedsPage,
+} from '@/lib/types'
 import { EmptyNote, ExecutionLink, Select, StatusDot } from '@/components/ui'
 
 const HOUR_MS = 60 * 60 * 1000
@@ -136,10 +144,10 @@ function RedLine({
 /**
  * Tab 3 — the flag log.
  *
- * Three tiers, in order of how easily they are missed. Batch integrity sits at
- * the very top because a batch that never ran leaves no red behind to find at
- * all. Hard errors come next, queried separately server-side and pinned: they
- * are the thing you must not be able to filter, sort, or paginate away, so they
+ * Three tiers, in order of how easily they are missed. Missing & broken sits at
+ * the very top because those four sources leave no red behind to find at all.
+ * Hard errors come next, queried separately server-side and pinned: they are
+ * the thing you must not be able to filter, sort, or paginate away, so they
  * neither collapse nor take part in the ordering below. The feed itself is last.
  */
 export default function RedsFeed({
@@ -147,6 +155,8 @@ export default function RedsFeed({
   hardErrors,
   deadBatches,
   missedReminders,
+  brokenCoach,
+  missedTranscripts,
   hasMore,
   nowMs,
   severityByCheckpoint,
@@ -155,6 +165,8 @@ export default function RedsFeed({
   hardErrors: RedRow[]
   deadBatches: BatchIntegrityRow[]
   missedReminders: MissedReminderRow[]
+  brokenCoach: CoachIntegrityRow[]
+  missedTranscripts: MissedTranscriptRow[]
   hasMore: boolean
   nowMs: number
   /** `workflow|checkpoint` → severity, so the feed can order by it. */
@@ -183,7 +195,7 @@ export default function RedsFeed({
     setLoadError(null)
     try {
       const offset = reds.length + extra.length
-      const res = await fetch(`/api/reds?offset=${offset}`, { cache: 'no-store' })
+      const res = await fetch(`${BASE_PATH}/api/reds?offset=${offset}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const page = (await res.json()) as RedsPage
       setExtra((prev) => [...prev, ...(page.reds ?? [])])
@@ -252,7 +264,12 @@ export default function RedsFeed({
 
   return (
     <div className="space-y-5">
-      <MissedBatches batches={deadBatches} missed={missedReminders} />
+      <MissingAndBroken
+        batches={deadBatches}
+        missed={missedReminders}
+        brokenCoach={brokenCoach}
+        missedTranscripts={missedTranscripts}
+      />
 
       {hardErrors.length > 0 ? (
         <div className="hairline accent accent-bad rounded-card bg-bg">

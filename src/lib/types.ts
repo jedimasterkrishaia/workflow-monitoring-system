@@ -115,6 +115,40 @@ export type MissedReminderRow = {
   mins_overdue: number | string | null
 }
 
+/**
+ * monitor_coach_integrity — one row per sales_coach run, listing the required
+ * steps it finished without stamping.
+ */
+export type CoachIntegrityRow = {
+  execution_id: string | null
+  /** IST wall clock with no offset. */
+  started_ist: string | null
+  missing_required: string[] | null
+  onepager_sent: boolean | null
+  followup_enqueued: boolean | null
+  verdict: string | null
+  execution_url: string | null
+}
+
+/**
+ * monitor_missed_transcripts — a demo happened but its transcript never
+ * arrived. Carries other verdicts too (e.g. `outcome_unmarked`); the panel
+ * only ever wants `missing_transcript`, filtered server-side.
+ */
+export type MissedTranscriptRow = {
+  lead_name: string | null
+  phone: string | null
+  email: string | null
+  gm: string | null
+  /** IST wall clock with no offset. */
+  demo_ist: string | null
+  deal_id: string | null
+  hubspot_stage: string | null
+  /** PostgREST may hand a `numeric` back as a string — coerce before use. */
+  hours_since_demo: number | string | null
+  verdict: string | null
+}
+
 /** monitor_gm_slots — one row per GM calendar owner. */
 export type GmSlotRow = {
   gm_name?: string | null
@@ -200,6 +234,13 @@ export type MonitorPayload = {
   deadBatches: BatchIntegrityRow[]
   /** Reminder actions that came due and never fired, newest first. */
   missedReminders: MissedReminderRow[]
+  /**
+   * sales_coach runs that finished without stamping every required step, last
+   * 48h. Same silent-failure shape as deadBatches — nothing turns red.
+   */
+  brokenCoach: CoachIntegrityRow[]
+  /** Demos that happened with no transcript ever recorded, most overdue first. */
+  missedTranscripts: MissedTranscriptRow[]
   /** First page of the lead list; later pages arrive via /api/leads. */
   leads: LeadRow[]
   /** Leads matching the active filters across the whole view — the N in "50 of N". */

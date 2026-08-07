@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { humanize, type Status } from '@/lib/aggregate'
+import { BASE_PATH } from '@/lib/basePath'
 import {
   checkpointLabel,
   greenPhases,
@@ -264,7 +265,7 @@ export default function LeadJourneys({
     try {
       const offset = leads.length + extra.length
       const query = leadParamsToQuery(params, { offset: String(offset) })
-      const res = await fetch(`/api/leads?${query}`, { cache: 'no-store' })
+      const res = await fetch(`${BASE_PATH}/api/leads?${query}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const page = (await res.json()) as LeadsPage
       setExtra((prev) => [...prev, ...(page.leads ?? [])])
@@ -287,7 +288,7 @@ export default function LeadJourneys({
     requested.current.add(phone)
     setEvents((prev) => ({ ...prev, [phone]: { status: 'loading' } }))
 
-    fetch(`/api/lead-events?phone=${encodeURIComponent(phone)}`, { cache: 'no-store' })
+    fetch(`${BASE_PATH}/api/lead-events?phone=${encodeURIComponent(phone)}`, { cache: 'no-store' })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return (await res.json()) as LeadEventsPayload

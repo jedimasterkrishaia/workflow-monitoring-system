@@ -14,7 +14,10 @@
       "PowerShell(node \"C:\\\\Users\\\\SHYAMK~1.ANI\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\D--Coded-Stuff-workflow-monitoring\\\\9b0b2c04-00d3-434b-b619-d9cfb2ee0451\\\\scratchpad\\\\verify.mjs\")",
       "PowerShell(npx next lint --dir src 2>&1 | Select-Object -Last 30)",
       "PowerShell(npx next dev --port 3111)",
-      "PowerShell(Get-ChildItem -Recurse -Force -Path src, sql, .claude | Select-Object FullName | ForEach-Object { $_.FullName.Replace\\(\\(Get-Location\\).Path + '\\\\', ''\\) })"
+      "PowerShell(Get-ChildItem -Recurse -Force -Path src, sql, .claude | Select-Object FullName | ForEach-Object { $_.FullName.Replace\\(\\(Get-Location\\).Path + '\\\\', ''\\) })",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/pulse)",
+      "Bash(taskkill //F //IM node.exe)"
     ]
   }
 }

@@ -18,13 +18,25 @@ import type { BucketRow, OverviewRow } from '@/lib/types'
  * a dispatch ladder, plain chips where it is neither.
  */
 
-export type Stage = { key: string; label: string }
+export type Stage = {
+  key: string
+  label: string
+  /** Renders dimmed regardless of data — an action that legitimately fires rarely. */
+  optional?: boolean
+}
 
 type PipelineConfig =
   /** One row per bucket; stages are checkpoints. */
   | { kind: 'buckets'; stages: Stage[]; preferred: string[]; extra?: { label: string; stages: Stage[] } }
   /** A single dispatch ladder; stages are *buckets*, not checkpoints. */
-  | { kind: 'funnel'; label: string; stages: Stage[]; stampedFrom: string }
+  | {
+      kind: 'funnel'
+      label: string
+      stages: Stage[]
+      stampedFrom: string
+      /** A second, checkpoint-grain row scoped to one bucket — e.g. a call-outcome ladder under the touchpoint funnel. */
+      secondRow?: { label: string; bucket: string; stages: Stage[] }
+    }
   /** A single row; stages are checkpoints, one of which may fan out. */
   | { kind: 'row'; label: string; stages: Stage[]; expand?: string }
 
@@ -77,6 +89,21 @@ const PIPELINES: Record<string, PipelineConfig> = {
       { key: 'call_sameday_first', label: 'Same-day call' },
     ],
     stampedFrom: 'log_append',
+    // The husky_call bucket stamps outcomes at checkpoint grain, not rung grain,
+    // so it cannot share the ladder row above — it gets its own beneath it.
+    secondRow: {
+      label: 'Call outcomes (husky)',
+      bucket: 'husky_call',
+      stages: [
+        { key: 'husky_outcome', label: 'Outcome' },
+        { key: 'confirm_marked', label: 'Confirmed' },
+        { key: 'cancel_marked', label: 'Cancelled' },
+        { key: 'reschedule_marked', label: 'Rescheduled' },
+        { key: 'outcome_logged', label: 'Logged' },
+        { key: 'husky_wa', label: 'WA' },
+        { key: 'deal_stage_update', label: 'Deal stage' },
+      ],
+    },
   },
 
   reminder_dispatch: {
@@ -105,6 +132,29 @@ const PIPELINES: Record<string, PipelineConfig> = {
     // wa_send's buckets are the template variants, so it fans out on click.
     expand: 'wa_send',
   },
+
+  sales_coach: {
+    kind: 'row',
+    label: 'Coach chain',
+    stages: [
+      { key: 'transcript_received', label: 'Transcript' },
+      { key: 'demo_row', label: 'Demo row' },
+      { key: 'demos_updated', label: 'Demos updated' },
+      { key: 'stage_updated', label: 'Stage updated' },
+      { key: 'gm_report_sent', label: 'GM report' },
+      { key: 'cs_handoff', label: 'CS handoff' },
+      { key: 'lead_onepager_sent', label: 'One-pager', optional: true },
+      { key: 'followup_enqueued', label: 'Follow-up', optional: true },
+    ],
+  },
+
+  transcript_fetch: {
+    kind: 'row',
+    label: 'Transcripts',
+    stages: [{ key: 'transcript_row', label: 'Transcript row' }],
+    // Each bucket here is the GM the fetched transcript belongs to.
+    expand: 'transcript_row',
+  },
 }
 
 /** The row a bucket-less checkpoint lands in. */
@@ -121,6 +171,8 @@ export type StageCell = {
   line: string
   /** Per-bucket breakdown; non-empty only for a configured expand stage. */
   buckets: StageCell[]
+  /** Renders dimmed regardless of data — an action that legitimately fires rarely. */
+  optional: boolean
 }
 
 export type PipelineRow = {
@@ -172,6 +224,7 @@ function cell(stage: Stage, rows: (OverviewRow | BucketRow)[]): StageCell {
     empty: rows.length === 0,
     line: roll.line,
     buckets: [],
+    optional: Boolean(stage.optional),
   }
 }
 
@@ -270,7 +323,7 @@ function buildFunnelRow(
 
   const roll = rollup(sends, opts)
 
-  return [
+  const rows: PipelineRow[] = [
     {
       key: '__funnel__',
       label: config.label,
@@ -281,6 +334,30 @@ function buildFunnelRow(
       stamped: { count: stampTotal, sends: sendTotal, short: stampTotal < sendTotal },
     },
   ]
+
+  const secondRow = config.secondRow
+  if (secondRow) {
+    const stageKeys = new Set(secondRow.stages.map((s) => s.key))
+    const mine = bucketRows.filter(
+      (r) => stageKeys.has(r.checkpoint) && (r.bucket ?? '').trim() === secondRow.bucket,
+    )
+    // Only worth a row once this bucket has actually fired.
+    if (mine.length > 0) {
+      const byCheckpoint = groupBy(mine, (r) => r.checkpoint)
+      const secondRoll = rollup(mine, opts)
+      rows.push({
+        key: '__second__',
+        label: secondRow.label,
+        mono: false,
+        stages: secondRow.stages.map((stage) => cell(stage, byCheckpoint.get(stage.key) ?? [])),
+        severity: secondRoll.severity,
+        line: secondRoll.line,
+        stamped: null,
+      })
+    }
+  }
+
+  return rows
 }
 
 function buildSingleRow(

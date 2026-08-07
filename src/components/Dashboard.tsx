@@ -9,6 +9,7 @@ import RedsFeed from '@/components/RedsFeed'
 import WorkflowTiles from '@/components/WorkflowTiles'
 import { Section, Tabs, type Tab } from '@/components/ui'
 import { buildWorkflowTiles, withoutSystemCheckpoints } from '@/lib/aggregate'
+import { BASE_PATH } from '@/lib/basePath'
 import { leadParamsToQuery } from '@/lib/leadParams'
 import { buildPipelines } from '@/lib/pipelines'
 import { rollup, type Severity } from '@/lib/severity'
@@ -49,7 +50,9 @@ export default function Dashboard({ initialPayload }: { initialPayload: MonitorP
   const refresh = useCallback(async (params: LeadListParams) => {
     setRefreshing(true)
     try {
-      const res = await fetch(`/api/monitor?${leadParamsToQuery(params)}`, { cache: 'no-store' })
+      const res = await fetch(`${BASE_PATH}/api/monitor?${leadParamsToQuery(params)}`, {
+        cache: 'no-store',
+      })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const next = (await res.json()) as MonitorPayload
       setPayload(next)
@@ -224,6 +227,8 @@ export default function Dashboard({ initialPayload }: { initialPayload: MonitorP
           hardErrors={payload.hardErrors}
           deadBatches={payload.deadBatches}
           missedReminders={payload.missedReminders}
+          brokenCoach={payload.brokenCoach}
+          missedTranscripts={payload.missedTranscripts}
           hasMore={payload.redsHasMore}
           nowMs={nowMs}
           severityByCheckpoint={severityByCheckpoint}

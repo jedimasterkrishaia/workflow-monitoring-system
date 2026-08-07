@@ -7,6 +7,7 @@ import {
   DEFAULT_LEAD_PARAMS,
   type BatchIntegrityRow,
   type BucketRow,
+  type CoachIntegrityRow,
   type GmSlotRow,
   type LeadEventRow,
   type LeadEventsPayload,
@@ -14,6 +15,7 @@ import {
   type LeadRow,
   type LeadsPage,
   type MissedReminderRow,
+  type MissedTranscriptRow,
   type MonitorPayload,
   type OverviewRow,
   type RedRow,
@@ -54,6 +56,23 @@ export const MISSED_REMINDER_LIMIT = 200
 const DEAD_BATCH_VERDICT_PREFIX = 'LOOP DIED'
 const DEAD_BATCH_HOURS = 48
 
+/**
+ * monitor_coach_integrity carries the same silent-failure shape as batch
+ * integrity — a run that finished without stamping every required step —
+ * matched as a prefix for the same reason (see DEAD_BATCH_VERDICT_PREFIX).
+ */
+const INCOMPLETE_VERDICT_PREFIX = 'INCOMPLETE'
+
+/**
+ * monitor_missed_transcripts carries other verdicts too (`outcome_unmarked`
+ * and onward as the view grows) — the panel is specifically about a transcript
+ * that never arrived, so it is an equality filter, not a catch-all.
+ */
+const MISSING_TRANSCRIPT_VERDICT = 'missing_transcript'
+
+/** Leads shown in the missed-transcript panel; a cap on an already-narrow list. */
+export const MISSED_TRANSCRIPT_LIMIT = 20
+
 const DAY_MS = 24 * 60 * 60 * 1000
 
 const EMPTY: Omit<MonitorPayload, 'generatedAt' | 'configured' | 'errors'> = {
@@ -65,6 +84,8 @@ const EMPTY: Omit<MonitorPayload, 'generatedAt' | 'configured' | 'errors'> = {
   redsLast24h: 0,
   deadBatches: [],
   missedReminders: [],
+  brokenCoach: [],
+  missedTranscripts: [],
   leads: [],
   leadsTotal: 0,
   leadsHasMore: false,
@@ -338,6 +359,8 @@ export async function getMonitorPayload(
     recent24h,
     deadBatches,
     missedReminders,
+    brokenCoach,
+    missedTranscripts,
     leads,
     pipelines,
     gmSlots,
@@ -381,6 +404,24 @@ export async function getMonitorPayload(
         .order('due_ist', { ascending: false, nullsFirst: false })
         .limit(MISSED_REMINDER_LIMIT),
     ),
+    // started_ist is naive IST too — same cutoff shape as deadBatches above.
+    safeSelect<CoachIntegrityRow>('monitor_coach_integrity', () =>
+      supabase
+        .from('monitor_coach_integrity')
+        .select('*')
+        .ilike('verdict', `${INCOMPLETE_VERDICT_PREFIX}%`)
+        .gte('started_ist', toIstNaive(Date.now() - DEAD_BATCH_HOURS * 60 * 60 * 1000))
+        .order('started_ist', { ascending: false, nullsFirst: false })
+        .limit(DEAD_BATCH_LIMIT),
+    ),
+    safeSelect<MissedTranscriptRow>('monitor_missed_transcripts', () =>
+      supabase
+        .from('monitor_missed_transcripts')
+        .select('*')
+        .eq('verdict', MISSING_TRANSCRIPT_VERDICT)
+        .order('hours_since_demo', { ascending: false, nullsFirst: false })
+        .limit(MISSED_TRANSCRIPT_LIMIT),
+    ),
     getLeadsPage(leadParams, 0),
     // Unfiltered, so the dropdown still offers every pipeline once one is picked.
     safeSelect<{ pipeline: string | null }>(`${LEAD_VIEW} (pipelines)`, () =>
@@ -402,6 +443,8 @@ export async function getMonitorPayload(
       recent24h.error,
       deadBatches.error,
       missedReminders.error,
+      brokenCoach.error,
+      missedTranscripts.error,
       leads.error,
       pipelines.error,
       gmSlots.error,
@@ -414,6 +457,8 @@ export async function getMonitorPayload(
     redsLast24h: recent24h.rows.length,
     deadBatches: deadBatches.rows,
     missedReminders: missedReminders.rows,
+    brokenCoach: brokenCoach.rows,
+    missedTranscripts: missedTranscripts.rows,
     leads: leads.leads,
     leadsTotal: leads.total,
     leadsHasMore: leads.hasMore,

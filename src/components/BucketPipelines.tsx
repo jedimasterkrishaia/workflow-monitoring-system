@@ -113,7 +113,10 @@ function Row({
                 type="button"
                 onClick={() => onToggle(idOf(stage))}
                 title={title}
-                className="inline-flex items-baseline gap-1 rounded-chip hover:bg-surface-2"
+                className={[
+                  'inline-flex items-baseline gap-1 rounded-chip hover:bg-surface-2',
+                  stage.optional ? 'opacity-60' : '',
+                ].join(' ')}
               >
                 <StageBody stage={stage} open={open} />
               </button>
@@ -123,6 +126,7 @@ function Row({
                 className={[
                   'inline-flex items-baseline gap-1',
                   chips ? 'hairline rounded-chip bg-surface px-2 py-0.5' : '',
+                  stage.optional ? 'opacity-60' : '',
                 ].join(' ')}
               >
                 <StageBody stage={stage} open={open} />
