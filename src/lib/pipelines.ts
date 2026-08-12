@@ -144,7 +144,6 @@ const PIPELINES: Record<string, PipelineConfig> = {
       { key: 'gm_report_sent', label: 'GM report' },
       { key: 'cs_handoff', label: 'CS handoff' },
       { key: 'lead_onepager_sent', label: 'One-pager', optional: true },
-      { key: 'followup_enqueued', label: 'Follow-up', optional: true },
     ],
   },
 

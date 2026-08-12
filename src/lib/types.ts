@@ -125,7 +125,6 @@ export type CoachIntegrityRow = {
   started_ist: string | null
   missing_required: string[] | null
   onepager_sent: boolean | null
-  followup_enqueued: boolean | null
   verdict: string | null
   execution_url: string | null
 }
