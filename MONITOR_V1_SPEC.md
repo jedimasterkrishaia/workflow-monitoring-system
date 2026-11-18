@@ -12,6 +12,10 @@ Rebuild this app's data layer on the new monitor functions in Supabase. Keep the
 | No alerts, no writes in v1 | Alerts come later as a separate n8n workflow |
 | Do not drop the old `monitor_*` views until this version is deployed | The current deployed app still reads them |
 
+> **Update, 18 Nov 2026:** the Basic Auth row above no longer reflects the deployment. It was
+> built, deployed, and then removed again on request the same day — the dashboard is now open to
+> anyone with the URL. See "Access control" in the README.
+
 ## Data sources (all exist in project `qmaphtslnvvifkzmbrvh`, read-only)
 
 ### 1. `mon_health()` → health board

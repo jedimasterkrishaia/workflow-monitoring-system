@@ -1,7 +1,7 @@
 # AiA System Monitor
 
-Read-only ops dashboard for the AiA lead pipeline. One page behind HTTP Basic Auth, backed by
-three Postgres functions in Supabase project `qmaphtslnvvifkzmbrvh`.
+Read-only ops dashboard for the AiA lead pipeline. One page, backed by three Postgres functions
+in Supabase project `qmaphtslnvvifkzmbrvh`.
 
 Built per [`MONITOR_V1_SPEC.md`](./MONITOR_V1_SPEC.md).
 
@@ -48,26 +48,28 @@ dropped** — check nothing else depends on them first.
 
 ## Environment
 
-Copy `.env.example` to `.env.local` (dev) or `.env` (Docker). All five are required:
+Copy `.env.example` to `.env.local` (dev) or `.env` (Docker).
 
 | Variable | Notes |
 | --- | --- |
 | `SUPABASE_URL` | `https://qmaphtslnvvifkzmbrvh.supabase.co` |
 | `SUPABASE_SERVICE_ROLE_KEY` | service_role key for that project; server-side only |
-| `BASIC_AUTH_USER` | login for the whole app |
-| `BASIC_AUTH_PASS` | `openssl rand -base64 24` |
 | `MONITOR_DOMAIN`, `TRAEFIK_*` | routing only — see the comments in `.env.example` |
 
-`src/middleware.ts` puts Basic Auth in front of the page *and* the API routes, because the lead
-journey shows names, phone numbers and WhatsApp message text. With either `BASIC_AUTH_*` value
-missing the app answers **503** rather than serving lead data unauthenticated.
+## Access control
+
+**There is none.** Every page and every `/api` route reads Supabase with the service_role key
+and nothing sits in front of them, so anyone with the URL gets a full read — including the lead
+journey's names, phone numbers and WhatsApp message text. Deliberate choice for this
+deployment; don't link to it from anywhere public, and treat the URL itself as the only thing
+keeping it private. (`layout.tsx` sends `robots: noindex, nofollow`, which asks crawlers to stay
+away but enforces nothing.)
 
 ## Stack and layout
 
 Next.js 15 (App Router) + TypeScript + Tailwind v4, `@supabase/supabase-js` server-side only.
 
 ```
-src/middleware.ts        HTTP Basic Auth over everything
 src/app/page.tsx         server-renders health + the 7-day funnels
 src/app/api/*/route.ts   health, journey, funnels
 src/lib/data.ts          the three rpc() calls — the only Supabase access
@@ -108,16 +110,17 @@ git clone <repo-url> workflow-monitoring
 cd workflow-monitoring
 
 cp .env.example .env
-nano .env          # SUPABASE_SERVICE_ROLE_KEY, BASIC_AUTH_USER, BASIC_AUTH_PASS required;
+nano .env          # SUPABASE_SERVICE_ROLE_KEY required;
                    # check MONITOR_DOMAIN and the three TRAEFIK_* values
 chmod 600 .env
 
 docker compose up -d --build
 docker compose logs -f          # Ctrl-C once you see "Ready in ..."
 
-# 401 without credentials is correct; 200 with them means the app and Traefik are both fine
+# 200 = the app is up and Traefik is routing (no auth in front of it — see
+# "Access control" above)
 curl -i https://$MONITOR_DOMAIN/
-curl -i -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" https://$MONITOR_DOMAIN/api/health
+curl -i https://$MONITOR_DOMAIN/api/health
 
 # Bypass Traefik to isolate app-vs-proxy problems
 docker compose exec monitor node -e "fetch('http://127.0.0.1:3000/').then(r=>console.log(r.status))"
@@ -130,7 +133,7 @@ git pull && docker compose up -d --build
 docker image prune -f
 ```
 
-### Change a credential
+### Change the Supabase key
 
 ```bash
 nano .env
@@ -147,8 +150,7 @@ docker compose logs --tail=100
 docker compose down
 ```
 
-The healthcheck fetches `/` and only fails on 5xx, so the 401 an unauthenticated request gets
-still counts as healthy — a 503 (missing `BASIC_AUTH_*`) does not.
+The healthcheck fetches `/` and only fails on 5xx.
 
 ## Not built yet (deliberately)
 
