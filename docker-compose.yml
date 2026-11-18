@@ -41,14 +41,18 @@ services:
       # No auth in front of this, and none inside the app either: anyone with
       # the URL can read the dashboard and the three /api routes, lead names,
       # phone numbers and WhatsApp message text included.
+    # Probes /api/ping, not /. Rendering / calls mon_health() and mon_funnels(),
+    # which takes several seconds — past the timeout below — so probing it made
+    # the container sit in "health: starting" forever, and Traefik drops the
+    # route of a container that never turns healthy (the site 404s).
     healthcheck:
       test:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.status < 500 ? 0 : 1)).catch(() => process.exit(1))"
+        - "fetch('http://127.0.0.1:3000/api/ping').then(r => process.exit(r.status < 500 ? 0 : 1)).catch(() => process.exit(1))"
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 20s
     logging:
