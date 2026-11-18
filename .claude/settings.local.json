@@ -17,7 +17,8 @@
       "PowerShell(Get-ChildItem -Recurse -Force -Path src, sql, .claude | Select-Object FullName | ForEach-Object { $_.FullName.Replace\\(\\(Get-Location\\).Path + '\\\\', ''\\) })",
       "Bash(npm run *)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/pulse)",
-      "Bash(taskkill //F //IM node.exe)"
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(node -e ' *)"
     ]
   }
 }
