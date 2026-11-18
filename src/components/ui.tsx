@@ -1,6 +1,26 @@
-import type { Status } from '@/lib/aggregate'
+import type { MonStatus } from '@/lib/monitor'
 
 /** Shared flat primitives. Hairlines only — no shadows, no gradients. */
+
+/**
+ * The visual statuses. `idle` carries `broken`: a check that could not run is
+ * not a red check, and painting it red would put a failure on a system that may
+ * be fine. It reads as neutral-but-noted, and the Broken tile counts it.
+ */
+export type Status = 'green' | 'red' | 'amber' | 'idle'
+
+export function uiStatus(status: MonStatus): Status {
+  switch (status) {
+    case 'ok':
+      return 'green'
+    case 'red':
+      return 'red'
+    case 'amber':
+      return 'amber'
+    default:
+      return 'idle'
+  }
+}
 
 /** Background + border for a tinted tile / chip. */
 export function statusSurface(status: Status): string {
@@ -43,7 +63,7 @@ function statusFill(status: Status): string {
   }
 }
 
-/** Status circle: filled for green/red/amber, faint outline for "never reached". */
+/** Status circle: filled for green/red/amber, faint outline for broken. */
 export function StatusDot({
   status,
   title,
@@ -67,12 +87,7 @@ export function StatusDot({
   )
 }
 
-/**
- * Tinted pill — health badges and journey phases on the lead tab.
- *
- * Deliberately has no `idle` styling worth reaching for: a phase that has not
- * happened is not rendered at all, so the row only ever states facts.
- */
+/** Tinted pill — the health board's verdict column. */
 export function Pill({
   status,
   title,
@@ -81,7 +96,7 @@ export function Pill({
 }: {
   status: Status
   title?: string
-  /** Health badges carry the verdict, so they sit a notch heavier than phases. */
+  /** Health badges carry the verdict, so they sit a notch heavier than labels. */
   strong?: boolean
   children: React.ReactNode
 }) {
@@ -97,56 +112,6 @@ export function Pill({
     >
       {children}
     </span>
-  )
-}
-
-/** Count badge — used for the red total on the flag-log tab label. */
-export function Badge({ count }: { count: number }) {
-  if (count <= 0) return null
-  return (
-    <span className="ml-1.5 rounded-full bg-bad px-1.5 py-px text-[10px] font-semibold tabular-nums leading-[15px] text-white">
-      {count > 999 ? '999+' : count}
-    </span>
-  )
-}
-
-export type Tab<T extends string> = { id: T; label: string; badge?: number }
-
-/** Underlined tab bar. Flat — the active tab is marked by a 1px rule, not a fill. */
-export function Tabs<T extends string>({
-  tabs,
-  active,
-  onChange,
-}: {
-  tabs: Tab<T>[]
-  active: T
-  onChange: (id: T) => void
-}) {
-  return (
-    <div className="hairline-b mb-5 flex items-center gap-1" role="tablist">
-      {tabs.map((tab) => {
-        const selected = tab.id === active
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={selected}
-            onClick={() => onChange(tab.id)}
-            className={[
-              // -0.5px pulls the active rule over the container hairline.
-              'relative -mb-[0.5px] flex items-center px-2.5 py-2 text-[13px]',
-              selected
-                ? 'border-b border-ink font-medium text-ink'
-                : 'border-b border-transparent text-ink-2 hover:text-ink',
-            ].join(' ')}
-          >
-            {tab.label}
-            {tab.badge ? <Badge count={tab.badge} /> : null}
-          </button>
-        )
-      })}
-    </div>
   )
 }
 
@@ -183,77 +148,44 @@ export function EmptyNote({ children }: { children: React.ReactNode }) {
   )
 }
 
-/**
- * Link out to the n8n execution behind a row.
- *
- * Stops propagation because these sit inside rows that are themselves clickable
- * to expand — following the link should not also toggle the group open.
- */
-export function ExecutionLink({ url }: { url: string }) {
+/** A failed read, stated rather than silently rendered as "no rows". */
+export function ErrorNote({ children }: { children: React.ReactNode }) {
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer noopener"
-      onClick={(e) => e.stopPropagation()}
-      className="underline underline-offset-2 hover:text-ink"
-    >
-      execution ↗
-    </a>
+    <div className="hairline mb-3 rounded-card border-bad/30 bg-bad-soft px-3 py-2 text-[12px] text-bad">
+      {children}
+    </div>
   )
 }
 
-/** Compact select used by the flag-log and lead filters. */
+/** Compact select — used by the funnel window picker. */
 export function Select({
   label,
   value,
   options,
   onChange,
+  disabled,
 }: {
   label: string
   value: string
   options: { value: string; label: string }[]
   onChange: (value: string) => void
+  disabled?: boolean
 }) {
   return (
     <label className="flex items-center gap-1.5 text-[12px] text-ink-2">
       <span className="text-ink-3">{label}</span>
       <select
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="hairline rounded-chip bg-bg px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+        className="hairline rounded-chip bg-bg px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong disabled:opacity-60"
       >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>
     </label>
-  )
-}
-
-/** Small on/off pill — used for the reds-only toggle. */
-export function Toggle({
-  checked,
-  onChange,
-  children,
-}: {
-  checked: boolean
-  onChange: (next: boolean) => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={checked}
-      onClick={() => onChange(!checked)}
-      className={[
-        'hairline rounded-chip px-2 py-1 text-[12px]',
-        checked ? 'border-bad/30 bg-bad-soft text-bad' : 'bg-bg text-ink-2 hover:bg-surface',
-      ].join(' ')}
-    >
-      {children}
-    </button>
   )
 }

@@ -5,8 +5,9 @@ services:
     image: korefi-workflow-monitor:latest
     container_name: korefi-workflow-monitor
     restart: unless-stopped
-    # SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, plus the MONITOR_DOMAIN /
-    # TRAEFIK_* values used by the labels below.
+    # SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BASIC_AUTH_USER,
+    # BASIC_AUTH_PASS, plus the MONITOR_DOMAIN / TRAEFIK_* values used by the
+    # labels below.
     # Read at container start — `docker compose up -d` after editing .env.
     env_file: .env
     # No `ports:` on purpose. Traefik runs with network_mode: host on this VPS
@@ -38,8 +39,12 @@ services:
       # Required whenever the image EXPOSEs more than nothing ambiguous; also the
       # only way Traefik learns the port when no host port is published.
       - "traefik.http.services.monitor.loadbalancer.server.port=3000"
-      # No auth in front of this — access control was deliberately removed.
-      # Anyone with the URL can read the dashboard and /api/monitor.
+      # No Traefik auth middleware: the app does HTTP Basic Auth itself in
+      # src/middleware.ts, from BASIC_AUTH_USER / BASIC_AUTH_PASS in .env — so
+      # the page and the three /api routes are all behind one login.
+    # Basic Auth makes an unauthenticated GET / answer 401, which is still a
+    # healthy app — the check only fails on 5xx (a broken build, a dead port, or
+    # the 503 the middleware returns when BASIC_AUTH_* is unset).
     healthcheck:
       test:
         - CMD

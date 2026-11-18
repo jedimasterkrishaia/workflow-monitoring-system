@@ -1,137 +1,104 @@
-# KoreFi Workflow Monitor
+# AiA System Monitor
 
-Read-only ops dashboard for the KoreFi n8n automation pipeline. Single page, four sections,
-auto-refreshing every 60 seconds, backed entirely by read-only Supabase views.
+Read-only ops dashboard for the AiA lead pipeline. One page behind HTTP Basic Auth, backed by
+three Postgres functions in Supabase project `qmaphtslnvvifkzmbrvh`.
 
-Built per [`MONITOR_DASHBOARD_SPEC.md`](./MONITOR_DASHBOARD_SPEC.md).
-
-## Stack
-
-- Next.js 15 (App Router) + TypeScript + Tailwind CSS v4
-- `@supabase/supabase-js`, **server-side only** — the service role key never reaches the browser
-
-## Quick start
-
-```bash
-npm install
-npm run dev
-```
-
-Then open <http://localhost:3000>.
-
-The app boots and renders even with no credentials — you'll see a warning banner and empty
-sections until Supabase is configured.
-
-## Supabase credentials — you need to fill these in
-
-`.env.local` already exists with the project URL from the spec and a placeholder key:
-
-```
-SUPABASE_URL=https://qmaphtslnvvifkzmbrvh.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=REPLACE_ME_service_role_key
-```
-
-Replace `REPLACE_ME_service_role_key` with the **service_role** key from
-Supabase dashboard → Project Settings → API → Project API keys, then restart `npm run dev`
-(Next.js reads env files at startup).
-
-The banner at the top of the page disappears once both values are real.
-
-> The service role key bypasses row-level security. It is only ever read in server code
-> (`src/lib/supabase.ts` is marked `server-only`), and `.env.local` is gitignored.
+Built per [`MONITOR_V1_SPEC.md`](./MONITOR_V1_SPEC.md).
 
 ## What it shows
 
-| Section | Source view | Notes |
-| --- | --- | --- |
-| Workflow tiles | `monitor_overview` (+ `monitor_gm_slots`) | Aggregated per workflow, worst-case coloured: any red today → red tile. Tiles are derived from `DISTINCT workflow`, so new workflows appear automatically. GM strip: stale >5 min = red, `all_free_warn` = amber. |
-| Checkpoint chips | `monitor_overview` + `monitor_bucket_overview` | One chip per workflow×checkpoint. Chips whose checkpoint spans multiple buckets are clickable and expand to per-bucket counts and freshness. |
-| Needs attention | `monitor_reds_feed` | Top 20 failures; `hard_error` rows from the last 24 h are pinned on top with a distinct style. Each row links to the n8n execution. |
-| Lead journeys | `monitor_lead_journey` | ~50 most recent leads, dots grouped under Booking / First touch / AI SDR / Scheduler. Hover a red dot for the matching `red_details` snippet; click a row for the full detail. |
+1. **Header** — a one-line summary of the health rows ("4 red, 4 amber, 17 OK. Needs attention:
+   …") and the last refresh time in IST. Health re-fetches every 60s.
+2. **Tiles** — Red / Amber / OK / Broken counts.
+3. **Health board** — ~25 checks across Round robin, Popup, Enrichment, First touch, WhatsApp,
+   Agent, Scheduling, Instant demo, Calls and Nurture. Red and broken sort first, then amber,
+   then ok. The `detail` sentence comes from the database as-is.
+4. **Lead journey** — search a phone (any format) or an email for that lead's timeline across
+   router, HubSpot, popup, instant demo, enrichment, every WhatsApp message, agent decisions,
+   auto-schedule checks, meetings, call recordings and nurture. Failed steps render red.
+5. **Funnels** — Round robin, Popup, Instant demo, WhatsApp agent and Follow-ups, one card per
+   funnel × segment, over a Today / Yesterday+today / 7 / 14 / 30-day window (default 7), with
+   an optional day-by-day table per card.
+6. **"What the statuses mean"** — collapsed legend.
 
-### Chip colour rules
+## Where the data comes from
 
-- **Red** — the checkpoint has reds today, or reds dominate its buckets (≥ half).
-- **Amber** — a minority of buckets are red or stale while the rest are green (partial failure —
-  this is the case an all-green aggregate would otherwise hide).
-- **Green** — greens today, nothing red or stale.
-- **Grey** — no data yet.
+Three functions, nothing else — all the check logic lives in Supabase, so a workflow changing
+shape cannot break this app:
 
-"Stale" for checkpoints/buckets is `mins_since_green > 120`, defined as `STALE_MINUTES` in
-`src/lib/aggregate.ts` — the spec pins a threshold only for GM slots (5 min), so tune this one
-against real traffic.
+| Function | Used by |
+| --- | --- |
+| `mon_health()` | health board, tiles, header summary |
+| `mon_journey(q text)` | lead journey search |
+| `mon_funnels(d_from date, d_to date)` | funnels |
 
-### Phone search
+Reads go through `src/lib/data.ts` (server-only) via `supabase.rpc()`. The service role key
+never reaches the browser. API routes:
 
-The search box queries Supabase server-side (`ilike` on digits), so it finds leads beyond the 50
-rows currently displayed.
+- `GET /api/health`
+- `GET /api/journey?q=` — `q` is sanitised to `[0-9A-Za-z@._+ -]`, max 80 chars
+- `GET /api/funnels?days=7` — `days` clamped to 0..60
 
-## Project layout
+PostgREST truncates any single response at 1000 rows silently, so `getFunnels` fetches wide
+windows in 10-day chunks and sums them (a single 30-day call came back cut to 25 days). The
+payload carries `truncated: true` if a request ever lands on that ceiling again.
+
+The old `monitor_*` views are no longer read by anything here. They are deliberately **not
+dropped** — check nothing else depends on them first.
+
+## Environment
+
+Copy `.env.example` to `.env.local` (dev) or `.env` (Docker). All five are required:
+
+| Variable | Notes |
+| --- | --- |
+| `SUPABASE_URL` | `https://qmaphtslnvvifkzmbrvh.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | service_role key for that project; server-side only |
+| `BASIC_AUTH_USER` | login for the whole app |
+| `BASIC_AUTH_PASS` | `openssl rand -base64 24` |
+| `MONITOR_DOMAIN`, `TRAEFIK_*` | routing only — see the comments in `.env.example` |
+
+`src/middleware.ts` puts Basic Auth in front of the page *and* the API routes, because the lead
+journey shows names, phone numbers and WhatsApp message text. With either `BASIC_AUTH_*` value
+missing the app answers **503** rather than serving lead data unauthenticated.
+
+## Stack and layout
+
+Next.js 15 (App Router) + TypeScript + Tailwind v4, `@supabase/supabase-js` server-side only.
 
 ```
-src/
-  app/
-    api/monitor/route.ts   # single JSON snapshot endpoint, polled every 60s
-    page.tsx               # server component: first snapshot, then hands off to the client
-    layout.tsx, globals.css
-  components/
-    Dashboard.tsx          # client shell: polling, search, refresh clock
-    WorkflowTiles.tsx  GmStrip.tsx  CheckpointChips.tsx  RedsFeed.tsx  LeadJourneys.tsx
-    ui.tsx                 # StatusDot, status colour helpers, section chrome
-  lib/
-    supabase.ts            # server-only client (returns null on placeholder creds)
-    data.ts                # reads all five views; per-view error isolation
-    aggregate.ts           # tile + chip roll-ups (pure, shared with the client)
-    journey.ts             # phase/column map, red_details parsing
-    gm.ts                  # normalises monitor_gm_slots by shape, not a fixed schema
-    time.ts                # IST formatting, relative times
+src/middleware.ts        HTTP Basic Auth over everything
+src/app/page.tsx         server-renders health + the 7-day funnels
+src/app/api/*/route.ts   health, journey, funnels
+src/lib/data.ts          the three rpc() calls — the only Supabase access
+src/lib/monitor.ts       types + pure helpers: ordering, summary, percent rules, IST windows
+src/lib/time.ts          the IST refresh stamp
+src/components/          Monitor (poll + layout), HealthBoard, LeadJourney, Funnels, ui
 ```
 
-`monitor_gm_slots` column names weren't pinned down in the spec, so `gm.ts` detects the name,
-freshness, and count columns by shape. Once you can run `select * from monitor_gm_slots limit 1`,
-swap the heuristics for the real column names.
+Percentages are computed in `src/lib/monitor.ts`, not in the UI: each step is a share of the
+step before it plus a share of step 1, except Follow-ups (step 1 is a plain count, replies are a
+share of the send above them, sends carry none) and Popup's "Tapped self setup" (a share of
+"Saw popup", since it is the other branch out of the popup).
 
 ## Scripts
 
 ```bash
-npm run dev        # dev server on :3000
-npm run build      # production build
-npm start          # serve the production build
-npm run typecheck  # tsc --noEmit
+npm install
+npm run dev         # http://localhost:3000
+npm run typecheck
+npm run build
+npm run start
 ```
-
-## Access control
-
-**There is none.** Every page and every `/api` route reads Supabase with the service_role key
-(bypasses RLS), and nothing sits in front of them — anyone with the URL gets a full read of the
-monitor views. This was a deliberate choice for this deployment; there is no Basic Auth, no
-IP allowlist, nothing. Don't link to it from anywhere public, and treat the URL itself as the
-only thing keeping it private.
 
 ## Deploy — VPS + Docker
 
-Serves `monitor.187.127.173.25.sslip.io` from a container behind the VPS's existing Traefik.
-The container publishes **no host port** — Traefik reaches it on port 3000 over a shared
-Docker network and terminates TLS.
-
-### Hostname: sslip.io, no DNS setup
-
-`sslip.io` is a public wildcard resolver: `<anything>.<ip>.sslip.io` resolves to `<ip>`. So
-`monitor.187.127.173.25.sslip.io` already points at the VPS with nothing to configure, and
-Let's Encrypt's HTTP-01 challenge validates against it like any other public name — you get a
-real cert, not a self-signed one.
-
-Trade-off: the hostname carries the server's IP, so it changes if the VPS moves, and the name
-isn't yours. Swap `MONITOR_DOMAIN` in `.env` for a real domain (A record first) when one is
-available — nothing else needs to change.
-
-### What's in the image
-
-Multi-stage `Dockerfile` on `node:20-alpine`: `deps` (`npm ci`) → `builder` (`npm run build`,
-which emits `.next/standalone` thanks to `output: 'standalone'` in `next.config.ts`) → `runner`,
-which carries only `standalone/` + `.next/static` and runs `node server.js` as a non-root user.
-`.dockerignore` keeps `node_modules`, `.next`, and **all `.env*` files** out of the build
-context — secrets reach the container only through `env_file`, never through a layer.
+Serves `MONITOR_DOMAIN` from a container behind the VPS's existing Traefik, which terminates
+TLS and reaches the app on port 3000 over the Docker bridge network. The container publishes no
+host port; routing lives entirely in the `labels:` block of `docker-compose.yml`. The default
+`MONITOR_DOMAIN` uses `sslip.io` (`<anything>.<ip>.sslip.io` resolves to `<ip>`), so a fresh VPS
+needs no DNS records for the ACME HTTP-01 challenge to pass — swap in a real domain (A record
+first) when there is one.
 
 ### First deploy
 
@@ -141,18 +108,16 @@ git clone <repo-url> workflow-monitoring
 cd workflow-monitoring
 
 cp .env.example .env
-nano .env          # SUPABASE_SERVICE_ROLE_KEY required
-                   # MONITOR_DOMAIN already defaults to this VPS's sslip.io name;
-                   # check the three TRAEFIK_* values against the running Traefik
+nano .env          # SUPABASE_SERVICE_ROLE_KEY, BASIC_AUTH_USER, BASIC_AUTH_PASS required;
+                   # check MONITOR_DOMAIN and the three TRAEFIK_* values
 chmod 600 .env
 
 docker compose up -d --build
 docker compose logs -f          # Ctrl-C once you see "Ready in ..."
 
-# 200 = the app is up and Traefik is routing (no auth in front of it — see
-# "Access control" above)
-curl -i https://monitor.187.127.173.25.sslip.io/
-curl -i https://monitor.187.127.173.25.sslip.io/api/monitor
+# 401 without credentials is correct; 200 with them means the app and Traefik are both fine
+curl -i https://$MONITOR_DOMAIN/
+curl -i -u "$BASIC_AUTH_USER:$BASIC_AUTH_PASS" https://$MONITOR_DOMAIN/api/health
 
 # Bypass Traefik to isolate app-vs-proxy problems
 docker compose exec monitor node -e "fetch('http://127.0.0.1:3000/').then(r=>console.log(r.status))"
@@ -161,71 +126,32 @@ docker compose exec monitor node -e "fetch('http://127.0.0.1:3000/').then(r=>con
 ### Redeploy after a code change
 
 ```bash
-git pull
-docker compose up -d --build
+git pull && docker compose up -d --build
 docker image prune -f
 ```
 
-### Change the Supabase key
+### Change a credential
 
 ```bash
 nano .env
 docker compose up -d           # recreates the container; no rebuild needed
 ```
 
-`env_file` values are read at container start, so editing `.env` alone changes nothing —
-`docker compose restart` also re-reads it, but `up -d` is the safe habit.
+`env_file` values are read at container start, so editing `.env` alone changes nothing.
 
 ### Useful
 
 ```bash
 docker compose ps              # STATUS shows the healthcheck result
 docker compose logs --tail=100
-docker compose down            # stop and remove
+docker compose down
 ```
 
-### Traefik
-
-Routing lives entirely in the `labels:` block of `docker-compose.yml` — nothing to add on the
-Traefik side, as long as its Docker provider is watching the daemon (`providers.docker` in the
-static config). Two routers are declared: `monitor` on the HTTPS entrypoint with a cert
-resolver, and `monitor-http` on the HTTP entrypoint redirecting to it.
-
-This VPS's Traefik (`/docker/traefik/docker-compose.yml`) runs with `network_mode: host` and
-the Docker-socket provider (`--providers.docker`, `exposedbydefault=false`) — it binds 80/443
-directly on the host and reaches every container's IP over the Docker bridge network itself.
-That means **no shared docker network between this compose file and Traefik is needed at all**
-— unlike the common pattern of joining an `external: true` network, which this install doesn't
-use. (If the monitor container ever gets attached to a second network, add a
-`traefik.docker.network=<name>` label to disambiguate — see the comment above the labels block
-in `docker-compose.yml`.)
-
-The three values that must match your Traefik install, all set in `.env`:
-
-| Variable | Default | Where to check |
-| --- | --- | --- |
-| `TRAEFIK_HTTP_ENTRYPOINT` | `web` | Traefik's `--entrypoints.*.address` flags / `entryPoints:` in static config |
-| `TRAEFIK_HTTPS_ENTRYPOINT` | `websecure` | same |
-| `TRAEFIK_CERTRESOLVER` | `letsencrypt` | `--certificatesresolvers.*` flags / `certificatesResolvers:` in static config |
-
-Get one wrong and the symptom is a Traefik 404 (or its self-signed default cert) rather than an
-error at `up` time — the labels are just strings to Docker. Check with:
-
-```bash
-docker compose ps                          # confirm the monitor container is actually up
-docker logs traefik-traefik-1 --tail 50    # Traefik's own logs
-curl -sk -D - -o /dev/null https://<MONITOR_DOMAIN>/   # 404 + "TRAEFIK DEFAULT CERT" = no router matched
-```
-
-With the sslip.io default there is no DNS step — the name already resolves to the VPS, so the
-ACME challenge can succeed on the first `up`. (If you switch `MONITOR_DOMAIN` to a real domain,
-point its A record at the VPS **before** the first `up`, or the challenge fails and Traefik
-serves its default self-signed cert until the next retry.)
-
-Firewall: only 80/443 need to be open, and only Traefik binds them. This compose file publishes
-no host port at all — adding `"3000:3000"` would expose the app on the public IP *and* bypass
-ufw, since Docker writes its own iptables rules.
+The healthcheck fetches `/` and only fails on 5xx, so the 401 an unauthenticated request gets
+still counts as healthy — a 503 (missing `BASIC_AUTH_*`) does not.
 
 ## Not built yet (deliberately)
 
-- Writes, alerting, user management, historical charts — all v2 per the spec.
+- **Alerts.** v1 only displays. Alerting is planned as a separate n8n workflow reading the same
+  `mon_health()` rows.
+- **Writes.** Every path here is read-only; nothing in the app mutates the database.
